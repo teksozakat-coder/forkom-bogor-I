@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laporan Keuangan Pemuda</title>
+  
+  <!-- UI Libraries (Versi yang lebih stabil untuk CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Recharts UMD yang lebih kompatibel -->
+  <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+
+  <!-- Firebase Legacy SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; overflow-x: hidden; }
+    .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+    // Mengambil komponen dari window.Recharts secara aman
+    const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } = window.Recharts;
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDz0nVi6AcCQmE-XR7G6Fnkc3x61eDHpPU",
+      authDomain: "forkom-5b14c.firebaseapp.com",
+      projectId: "forkom-5b14c",
+      storageBucket: "forkom-5b14c.firebasestorage.app",
+      messagingSenderId: "559268778495",
+      appId: "1:559268778495:web:687789698b4f7c6c3957ca"
+    };
+
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    function App() {
+      const [transactions, setTransactions] = useState([]);
+      const [user, setUser] = useState(null);
+      const [isAdmin, setIsAdmin] = useState(false);
+      const [pin, setPin] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [form, setForm] = useState({ 
+        date: new Date().toISOString().split('T')[0], 
+        type: 'Pemasukan', 
+        category: 'Iuran Rutin', 
+        amount: '', 
+        note: '' 
+      });
+
+      useEffect(() => {
+        auth.signInAnonymously().catch(console.error);
+        auth.onAuthStateChanged(u => setUser(u));
+      }, []);
+
+      useEffect(() => {
+        if (!user) return;
+        const unsub = db.collection('transactions').onSnapshot(snap => {
+          const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setTransactions(data.sort((a,b) => new Date(b.date) - new Date(a.date)));
+          setLoading(false);
+        }, err => {
+          console.error("Firestore Error:", err);
+          setLoading(false);
+        });
+        return unsub;
+      }, [user]);
+
+      const stats = useMemo(() => {
+        let inc = 0, exp = 0;
+        transactions.forEach(t => { 
+          if(t.type === 'Pemasukan') inc += Number(t.amount); 
+          else exp += Number(t.amount); 
+        });
+        return { inc, exp, bal: inc - exp };
+      }, [transactions]);
+
+      const formatRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
+
+      const handleSave = async (e) => {
+        e.preventDefault();
+        if(!form.amount || form.amount <= 0) return alert("Masukkan jumlah yang valid");
+        try {
+          await db.collection('transactions').add({ 
+            ...form, 
+            amount: Number(form.amount), 
+            createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+          });
+          setForm({ ...form, amount: '', note: '' });
+          alert("Data tersimpan!");
+        } catch (e) { alert("Gagal menyimpan data."); }
+      };
+
+      const handleDelete = async (id) => {
+        if(window.confirm("Hapus catatan ini?")) {
+          try {
+            await db.collection('transactions').doc(id).delete();
+          } catch (e) { alert("Gagal menghapus."); }
+        }
+      };
+
+      if(loading) return <div className="flex h-screen items-center justify-center font-bold text-slate-400 animate-pulse">Menghubungkan ke Database...</div>;
+
+      return (
+        <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
+          {/* Top Navigation */}
+          <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 bg-teal-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-teal-200">P</div>
+              <div>
+                <h1 className="font-extrabold text-slate-800 leading-none">KAS PEMUDA</h1>
+                <p className="text-[10px] text-slate-400 font-bold tracking-widest">DIGITAL REPORT</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {!isAdmin ? (
+                <div className="flex gap-1 bg-slate-50 p-1 rounded-lg border border-slate-100">
+                  <input type="password" placeholder="PIN" className="w-16 bg-transparent p-1 text-xs outline-none" value={pin} onChange={e=>setPin(e.target.value)} />
+                  <button onClick={() => pin === '1234' ? setIsAdmin(true) : alert('PIN Salah')} className="bg-slate-800 text-white px-3 py-1 rounded-md text-xs font-bold hover:bg-slate-700 transition">Login</button>
+                </div>
+              ) : (
+                <button onClick={() => setIsAdmin(false)} className="bg-rose-50 text-rose-600 px-4 py-2 rounded-xl text-xs font-extrabold border border-rose-100 hover:bg-rose-100 transition">Keluar Panel Admin</button>
+              )}
+            </div>
+          </div>
+
+          {/* Balance Card */}
+          <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl border-b-8 border-teal-600">
+            <div className="absolute -top-10 -right-10 w-64 h-64 bg-teal-500/10 blur-[80px] rounded-full"></div>
+            <div className="relative z-10 text-center">
+              <p className="text-teal-400 text-[10px] font-black uppercase tracking-[0.3em] mb-4">Total Saldo Kas</p>
+              <h2 className="text-5xl md:text-7xl font-black tracking-tighter mb-2">{formatRp(stats.bal)}</h2>
+              <div className="inline-block px-4 py-1 bg-white/10 rounded-full text-[10px] font-bold backdrop-blur-sm">Update Otomatis • Realtime</div>
+            </div>
+          </div>
+
+          {/* Quick Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 flex justify-between items-center shadow-sm">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Pemasukan</p>
+                <div className="text-3xl font-black text-emerald-600">{formatRp(stats.inc)}</div>
+              </div>
+              <div className="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center text-2xl">↑</div>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 flex justify-between items-center shadow-sm">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Pengeluaran</p>
+                <div className="text-3xl font-black text-rose-600">{formatRp(stats.exp)}</div>
+              </div>
+              <div className="w-14 h-14 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center text-2xl">↓</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="space-y-6">
+              {isAdmin && (
+                <div className="bg-white p-8 rounded-[2rem] border-2 border-teal-600 shadow-xl animate-in fade-in duration-500">
+                  <h3 className="font-black mb-6 text-slate-800 flex items-center gap-2">
+                    <span className="w-2 h-5 bg-teal-600 rounded-full"></span>
+                    Tambah Catatan
+                  </h3>
+                  <form onSubmit={handleSave} className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Tanggal</label>
+                      <input type="date" required value={form.date} onChange={e=>setForm({...form, date:e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-sm border-none focus:ring-2 ring-teal-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Jenis & Kategori</label>
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        <select className="p-4 bg-slate-50 rounded-2xl text-sm border-none" value={form.type} onChange={e=>setForm({...form, type:e.target.value})}>
+                          <option value="Pemasukan">Masuk (+)</option>
+                          <option value="Pengeluaran">Keluar (-)</option>
+                        </select>
+                        <select className="p-4 bg-slate-50 rounded-2xl text-sm border-none font-bold text-teal-700" value={form.category} onChange={e=>setForm({...form, category:e.target.value})}>
+                          <option value="Iuran Rutin">Iuran Rutin</option>
+                          <option value="Bank Sampah">Bank Sampah</option>
+                          <option value="Donasi">Donasi</option>
+                          <option value="Operasional">Operasional</option>
+                          <option value="Lain-lain">Lain-lain</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Nominal Rupiah</label>
+                      <input type="number" required placeholder="Contoh: 50000" className="w-full p-4 bg-slate-50 rounded-2xl text-sm font-black border-none" value={form.amount} onChange={e=>setForm({...form, amount:e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Keterangan</label>
+                      <textarea placeholder="Tulis catatan di sini..." className="w-full p-4 bg-slate-50 rounded-2xl text-sm border-none h-24" value={form.note} onChange={e=>setForm({...form, note:e.target.value})} />
+                    </div>
+                    <button className="w-full bg-teal-600 text-white p-5 rounded-2xl font-black shadow-lg shadow-teal-200 hover:bg-teal-700 hover:scale-[1.02] active:scale-95 transition-all">SIMPAN TRANSAKSI</button>
+                  </form>
+                </div>
+              )}
+              
+              <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-8 text-center">Distribusi Kas</p>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie 
+                        data={[{n:'Masuk',v:stats.inc},{n:'Keluar',v:stats.exp}].filter(x=>x.v>0)} 
+                        cx="50%" cy="50%" 
+                        innerRadius={60} 
+                        outerRadius={85} 
+                        dataKey="v" 
+                        paddingAngle={8}
+                        stroke="none"
+                      >
+                        <Cell fill="#10b981" />
+                        <Cell fill="#f43f5e" />
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{borderRadius: '15px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontWeight: 'bold'}}
+                        formatter={v=>formatRp(v)} 
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex justify-center gap-6 mt-4">
+                   <div className="flex items-center gap-2 text-[10px] font-black"><span className="w-3 h-3 bg-emerald-500 rounded-full"></span> MASUK</div>
+                   <div className="flex items-center gap-2 text-[10px] font-black"><span className="w-3 h-3 bg-rose-500 rounded-full"></span> KELUAR</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+              <h3 className="font-black text-slate-800 mb-8 flex items-center gap-2">
+                <span className="w-2 h-5 bg-slate-800 rounded-full"></span>
+                Riwayat Transaksi
+              </h3>
+              <div className="space-y-4 max-h-[700px] overflow-y-auto pr-2 custom-scroll">
+                {transactions.map(t => (
+                  <div key={t.id} className="group flex items-center justify-between p-5 bg-slate-50/50 rounded-3xl border border-transparent hover:border-slate-200 hover:bg-white hover:shadow-md transition-all duration-300">
+                    <div className="flex items-center gap-5">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg ${t.type==='Pemasukan'?'bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-100':'bg-rose-100 text-rose-600 shadow-sm shadow-rose-100'}`}>
+                        {t.type === 'Pemasukan' ? '↑' : '↓'}
+                      </div>
+                      <div>
+                        <div className="text-xs font-black text-slate-800 uppercase tracking-tight">{t.category}</div>
+                        <div className="text-[10px] font-bold text-slate-400 mt-0.5">
+                          {new Date(t.date).toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'})}
+                        </div>
+                        {t.note && <div className="text-[11px] text-slate-500 mt-2 bg-white px-3 py-1 rounded-lg inline-block border border-slate-100 italic">"{t.note}"</div>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className={`text-base font-black ${t.type==='Pemasukan'?'text-emerald-600':'text-rose-600'}`}>
+                        {t.type === 'Pemasukan' ? '+' : '-'}{formatRp(t.amount).replace('Rp', '')}
+                      </div>
+                      {isAdmin && (
+                        <button onClick={() => handleDelete(t.id)} className="p-2 text-rose-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors">
+                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {transactions.length === 0 && (
+                  <div className="text-center py-32">
+                    <div className="text-5xl mb-4">📂</div>
+                    <p className="text-slate-400 font-bold">Belum ada aktivitas kas tercatat</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
