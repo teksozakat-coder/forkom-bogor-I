@@ -5,158 +5,205 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Laporan Keuangan Pemuda</title>
   
-  <!-- CSS & LIBRARY UTAMA (CDN) -->
+  <!-- UI Libraries -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
 
-  <!-- FIREBASE SDK COMPAT -->
+  <!-- Firebase Legacy SDK (Paling stabil untuk HTML Tunggal) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); }
+  </style>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="bg-slate-50 text-slate-900">
   <div id="root"></div>
 
   <script type="text/babel">
-    // 1. KONFIGURASI FIREBASE SESUAI PROJECT ANDA
+    const { useState, useEffect, useMemo } = React;
+    const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } = window.Recharts;
+
+    // --- CONFIGURASI FIREBASE ---
     const firebaseConfig = {
       apiKey: "AIzaSyDz0nVi6AcCQmE-XR7G6Fnkc3x61eDHpPU",
       authDomain: "forkom-5b14c.firebaseapp.com",
-      databaseURL: "https://forkom-5b14c-default-rtdb.asia-southeast1.firebasedatabase.app",
       projectId: "forkom-5b14c",
       storageBucket: "forkom-5b14c.firebasestorage.app",
       messagingSenderId: "559268778495",
-      appId: "1:559268778495:web:687789698b4f7c6c3957ca",
-      measurementId: "G-V0GVVXKW41"
+      appId: "1:559268778495:web:687789698b4f7c6c3957ca"
     };
 
-    // INISIALISASI
-    firebase.initializeApp(firebaseConfig);
+    // Inisialisasi
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const auth = firebase.auth();
-
-    const { useState, useEffect, useMemo } = React;
-    const { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } = window.Recharts;
 
     function App() {
       const [transactions, setTransactions] = useState([]);
       const [user, setUser] = useState(null);
       const [isAdmin, setIsAdmin] = useState(false);
-      const [adminPin, setAdminPin] = useState('');
-      const [formData, setFormData] = useState({ date: new Date().toISOString().split('T')[0], type: 'Pemasukan', category: 'Bank Sampah', amount: '', description: '', note: '' });
+      const [pin, setPin] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], type: 'Pemasukan', category: 'Bank Sampah', amount: '', note: '' });
 
       useEffect(() => {
         auth.signInAnonymously().catch(console.error);
-        auth.onAuthStateChanged(setUser);
+        auth.onAuthStateChanged(u => setUser(u));
       }, []);
 
       useEffect(() => {
         if (!user) return;
         const unsub = db.collection('transactions').onSnapshot(snap => {
-          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setTransactions(docs.sort((a,b) => new Date(b.date) - new Date(a.date)));
+          const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setTransactions(data.sort((a,b) => new Date(b.date) - new Date(a.date)));
+          setLoading(false);
         });
         return unsub;
       }, [user]);
 
-      const summary = useMemo(() => {
+      const stats = useMemo(() => {
         let inc = 0, exp = 0;
-        transactions.forEach(t => { if(t.type === 'Pemasukan') inc += Number(t.amount); else exp += Number(t.amount); });
+        transactions.forEach(t => { 
+          if(t.type === 'Pemasukan') inc += Number(t.amount); 
+          else exp += Number(t.amount); 
+        });
         return { inc, exp, bal: inc - exp };
       }, [transactions]);
 
-      const fmt = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
+      const formatRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
 
-      const save = async (e) => {
+      const handleSave = async (e) => {
         e.preventDefault();
         try {
-          await db.collection('transactions').add({ ...formData, amount: Number(formData.amount) });
-          setFormData({ ...formData, amount: '', description: '', note: '' });
-          alert("Data Berhasil Disimpan!");
-        } catch (e) { alert("Gagal Simpan!"); }
+          await db.collection('transactions').add({ ...form, amount: Number(form.amount), createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+          setForm({ ...form, amount: '', note: '' });
+          alert("Tersimpan!");
+        } catch (e) { alert("Gagal!"); }
       };
 
+      if(loading) return <div class="flex h-screen items-center justify-center font-bold text-slate-400">Memuat Data...</div>;
+
       return (
-        <div className="max-w-4xl mx-auto p-4 font-sans pb-20">
-          <div className="bg-teal-700 text-white p-4 rounded-xl flex justify-between items-center mb-6 shadow-md">
-            <h1 className="font-bold tracking-tight uppercase text-sm">Laporan Keuangan</h1>
+        <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
+          {/* Top Bar */}
+          <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-teal-600 rounded-lg flex items-center justify-center text-white font-bold">P</div>
+              <h1 className="font-extrabold text-slate-800 tracking-tight">KAS PEMUDA</h1>
+            </div>
             <div className="flex gap-2">
-              <input type="password" placeholder="PIN" className="w-16 p-1 text-[10px] rounded text-black outline-none" value={adminPin} onChange={e=>setAdminPin(e.target.value)} />
-              <button onClick={()=> adminPin === '1234' ? setIsAdmin(!isAdmin) : alert('PIN Salah')} className="bg-amber-500 text-[10px] px-2 py-1 rounded font-bold">Admin</button>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-br from-teal-600 to-emerald-700 p-10 rounded-3xl text-white text-center mb-6 shadow-xl border-b-4 border-emerald-900">
-            <div className="text-[10px] opacity-70 uppercase tracking-widest mb-1">Total Saldo Kas</div>
-            <div className="text-4xl md:text-5xl font-black tracking-tighter">{fmt(summary.bal)}</div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-emerald-500">
-              <div className="text-[9px] text-slate-400 uppercase font-bold">Total Pemasukan</div>
-              <div className="text-lg font-bold text-emerald-600">{fmt(summary.inc)}</div>
-            </div>
-            <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-rose-500">
-              <div className="text-[9px] text-slate-400 uppercase font-bold">Total Pengeluaran</div>
-              <div className="text-lg font-bold text-rose-600">{fmt(summary.exp)}</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="md:col-span-1 space-y-6">
-              {isAdmin && (
-                <form onSubmit={save} className="bg-white p-5 rounded-2xl shadow-sm border-t-4 border-amber-500 space-y-3">
-                  <h3 className="font-bold text-xs mb-2">Input Transaksi</h3>
-                  <input type="date" required className="w-full p-2 border rounded text-xs" value={formData.date} onChange={e=>setFormData({...formData, date:e.target.value})} />
-                  <select className="w-full p-2 border rounded text-xs" value={formData.type} onChange={e=>setFormData({...formData, type:e.target.value})}>
-                    <option value="Pemasukan">Pemasukan</option><option value="Pengeluaran">Pengeluaran</option>
-                  </select>
-                  <input type="number" placeholder="Nominal Rp" className="w-full p-2 border rounded text-xs font-bold" value={formData.amount} onChange={e=>setFormData({...formData, amount:e.target.value})} />
-                  <textarea placeholder="Ket..." className="w-full p-2 border rounded text-xs" value={formData.description} onChange={e=>setFormData({...formData, description:e.target.value})} />
-                  <input type="text" placeholder="Internal (Oleh siapa?)" className="w-full p-2 border border-amber-200 bg-amber-50 rounded text-xs italic" value={formData.note} onChange={e=>setFormData({...formData, note:e.target.value})} />
-                  <button className="w-full bg-teal-600 text-white p-2 rounded-lg font-bold text-xs shadow-md">Simpan Data</button>
-                </form>
+              {!isAdmin ? (
+                <div className="flex gap-1">
+                  <input type="password" placeholder="PIN" className="w-16 p-1 border rounded text-xs" value={pin} onChange={e=>setPin(e.target.value)} />
+                  <button onClick={() => pin === '1234' ? setIsAdmin(true) : alert('Salah')} className="bg-slate-800 text-white px-3 py-1 rounded-md text-xs font-bold">Login</button>
+                </div>
+              ) : (
+                <button onClick={() => setIsAdmin(false)} className="bg-red-50 text-red-600 px-3 py-1 rounded-md text-xs font-bold border border-red-100">Logout</button>
               )}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
-                <p className="text-[10px] text-slate-400 uppercase mb-4 font-bold">Grafik Aliran Kas</p>
-                <div className="h-40 w-full">
+            </div>
+          </div>
+
+          {/* Main Balance Card */}
+          <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/20 blur-3xl rounded-full"></div>
+            <div className="relative z-10 text-center">
+              <p className="text-teal-400 text-xs font-bold uppercase tracking-[0.2em] mb-3">Saldo Kas Keseluruhan</p>
+              <h2 className="text-4xl md:text-6xl font-extrabold tracking-tighter">{formatRp(stats.bal)}</h2>
+            </div>
+          </div>
+
+          {/* Mini Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Pemasukan</p>
+                <div className="text-2xl font-bold text-emerald-600">{formatRp(stats.inc)}</div>
+              </div>
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center">↑</div>
+            </div>
+            <div className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Pengeluaran</p>
+                <div className="text-2xl font-bold text-rose-600">{formatRp(stats.exp)}</div>
+              </div>
+              <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center">↓</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Input & Chart Section */}
+            <div className="space-y-6">
+              {isAdmin && (
+                <div className="bg-white p-6 rounded-3xl border-2 border-teal-600 shadow-xl">
+                  <h3 className="font-bold mb-4 text-sm">Tambah Catatan Kas</h3>
+                  <form onSubmit={handleSave} className="space-y-3">
+                    <input type="date" required value={form.date} onChange={e=>setForm({...form, date:e.target.value})} className="w-full p-3 bg-slate-50 border-none rounded-xl text-sm" />
+                    <select className="w-full p-3 bg-slate-50 border-none rounded-xl text-sm" value={form.type} onChange={e=>setForm({...form, type:e.target.value})}>
+                      <option value="Pemasukan">Pemasukan (+)</option>
+                      <option value="Pengeluaran">Pengeluaran (-)</option>
+                    </select>
+                    <input type="number" required placeholder="Jumlah Rp" className="w-full p-3 bg-slate-50 border-none rounded-xl text-sm font-bold" value={form.amount} onChange={e=>setForm({...form, amount:e.target.value})} />
+                    <textarea placeholder="Keterangan..." className="w-full p-3 bg-slate-50 border-none rounded-xl text-sm" value={form.note} onChange={e=>setForm({...form, note:e.target.value})} />
+                    <button className="w-full bg-teal-600 text-white p-3 rounded-xl font-bold shadow-lg hover:bg-teal-700 transition">Simpan Transaksi</button>
+                  </form>
+                </div>
+              )}
+              
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col items-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-6">Alokasi Dana</p>
+                <div className="h-48 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart><Pie data={[{name:'Masuk',val:summary.inc},{name:'Keluar',val:summary.exp}].filter(x=>x.val>0)} cx="50%" cy="50%" innerRadius={40} outerRadius={55} dataKey="val">
-                      <Cell fill="#10b981"/><Cell fill="#f43f5e"/></Pie><Tooltip formatter={v=>fmt(v)}/></PieChart>
+                    <PieChart>
+                      <Pie data={[{n:'Masuk',v:stats.inc},{n:'Keluar',v:stats.exp}].filter(x=>x.v>0)} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="v" paddingAngle={5}>
+                        <Cell fill="#10b981" /><Cell fill="#f43f5e" />
+                      </Pie>
+                      <Tooltip formatter={v=>formatRp(v)} />
+                    </PieChart>
                   </ResponsiveContainer>
+                </div>
+                <div className="flex gap-4 mt-4 text-[10px] font-bold">
+                  <div className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500 rounded-full"></div> MASUK</div>
+                  <div className="flex items-center gap-1"><div className="w-2 h-2 bg-rose-500 rounded-full"></div> KELUAR</div>
                 </div>
               </div>
             </div>
 
-            <div className="md:col-span-2 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
-              <h3 className="font-bold text-xs mb-4 text-slate-700">Aktivitas Terakhir</h3>
-              <table className="w-full text-[10px] text-left">
-                <thead className="bg-slate-50 text-slate-400 uppercase border-b border-slate-100">
-                  <tr><th className="p-3">Tgl</th><th className="p-3">Info</th><th className="p-3 text-right">Nominal</th></tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {transactions.map(t => (
-                    <tr key={t.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 whitespace-nowrap">{new Date(t.date).toLocaleDateString('id-ID',{day:'2-digit',month:'short'})}</td>
-                      <td className="p-3">
-                        <div className="font-bold text-slate-700 leading-tight">{t.type}</div>
-                        <div className="text-[9px] text-slate-400">{t.description || '-'}</div>
-                      </td>
-                      <td className={`p-3 text-right font-black ${t.type==='Pemasukan'?'text-emerald-500':'text-rose-500'}`}>
-                        {t.type==='Pemasukan'?'+':'-'}{fmt(t.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* List Section */}
+            <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              <h3 className="font-bold text-sm mb-6">Riwayat Aktivitas</h3>
+              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                {transactions.map(t => (
+                  <div key={t.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${t.type==='Pemasukan'?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>
+                        {t.type === 'Pemasukan' ? '+' : '-'}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-800">{t.category}</div>
+                        <div className="text-[10px] text-slate-400">{new Date(t.date).toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'})}</div>
+                        <div className="text-[10px] text-slate-500 italic mt-1">{t.note}</div>
+                      </div>
+                    </div>
+                    <div className={`text-sm font-extrabold ${t.type==='Pemasukan'?'text-emerald-600':'text-rose-600'}`}>
+                      {formatRp(t.amount)}
+                    </div>
+                  </div>
+                ))}
+                {transactions.length === 0 && <div className="text-center py-20 text-slate-300 text-sm">Belum ada catatan keuangan</div>}
+              </div>
             </div>
           </div>
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
