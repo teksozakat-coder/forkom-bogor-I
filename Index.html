@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laporan Keuangan Pemuda</title>
+  
+  <!-- Library Utama -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+
+  <!-- Firebase SDK (Versi yang bisa jalan di HTML) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+</head>
+<body class="bg-slate-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // DATA DARI FOTO ANDA
+    const firebaseConfig = {
+      apiKey: "AIzaSyDz0nVi6AcCQmE-XR7G6Fnkc3x61eDHpPU",
+      authDomain: "forkom-5b14c.firebaseapp.com",
+      databaseURL: "https://forkom-5b14c-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "forkom-5b14c",
+      storageBucket: "forkom-5b14c.firebasestorage.app",
+      messagingSenderId: "559268778495",
+      appId: "1:559268778495:web:687789698b4f7c6c3957ca",
+      measurementId: "G-V0GVVXKW41"
+    };
+
+    // Inisialisasi
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    const { useState, useEffect, useMemo } = React;
+    const { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } = window.Recharts;
+
+    function App() {
+      const [transactions, setTransactions] = useState([]);
+      const [user, setUser] = useState(null);
+      const [isAdmin, setIsAdmin] = useState(false);
+      const [adminPin, setAdminPin] = useState('');
+      const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], type: 'Pemasukan', category: 'Bank Sampah', amount: '', description: '', note: '' });
+
+      useEffect(() => {
+        auth.signInAnonymously().catch(console.error);
+        auth.onAuthStateChanged(setUser);
+      }, []);
+
+      useEffect(() => {
+        if (!user) return;
+        const unsub = db.collection('transactions').onSnapshot(snap => {
+          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setTransactions(docs.sort((a,b) => new Date(b.date) - new Date(a.date)));
+        });
+        return unsub;
+      }, [user]);
+
+      const summary = useMemo(() => {
+        let inc = 0, exp = 0;
+        transactions.forEach(t => { if(t.type === 'Pemasukan') inc += Number(t.amount); else exp += Number(t.amount); });
+        return { inc, exp, bal: inc - exp };
+      }, [transactions]);
+
+      const fmt = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
+
+      const handleSave = async (e) => {
+        e.preventDefault();
+        await db.collection('transactions').add({ ...form, amount: Number(form.amount) });
+        setForm({ ...form, amount: '', description: '', note: '' });
+        alert("Data tersimpan!");
+      };
+
+      return (
+        <div className="max-w-4xl mx-auto p-4 font-sans min-h-screen">
+          <div className="bg-teal-700 text-white p-4 rounded-xl flex justify-between items-center mb-6 shadow-md">
+            <h1 className="font-bold">Keuangan Pemuda</h1>
+            <div className="flex gap-2 text-black">
+              <input type="password" placeholder="PIN" className="w-16 p-1 text-xs rounded" value={adminPin} onChange={e=>setAdminPin(e.target.value)} />
+              <button onClick={()=> adminPin === '1234' ? setIsAdmin(!isAdmin) : alert('PIN Salah (1234)')} className="bg-amber-500 text-xs px-2 py-1 rounded font-bold text-white">Admin</button>
+            </div>
+          </div>
+
+          <div className="bg-teal-600 p-10 rounded-3xl text-white text-center mb-6 shadow-xl">
+            <div className="text-xs opacity-80 uppercase mb-1">Saldo Kas Saat Ini</div>
+            <div className="text-5xl font-black">{fmt(summary.bal)}</div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-emerald-500">
+              <div className="text-xs text-slate-400">Pemasukan</div>
+              <div className="text-lg font-bold text-emerald-600">{fmt(summary.inc)}</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-rose-500">
+              <div className="text-xs text-slate-400">Pengeluaran</div>
+              <div className="text-lg font-bold text-rose-600">{fmt(summary.exp)}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-1">
+              {isAdmin && (
+                <form onSubmit={handleSave} className="bg-white p-4 rounded-xl shadow border space-y-3 mb-6">
+                  <input type="date" className="w-full p-2 border rounded text-sm" value={form.date} onChange={e=>setForm({...form, date:e.target.value})} />
+                  <select className="w-full p-2 border rounded text-sm" value={form.type} onChange={e=>setForm({...form, type:e.target.value})}>
+                    <option value="Pemasukan">Pemasukan</option>
+                    <option value="Pengeluaran">Pengeluaran</option>
+                  </select>
+                  <input type="number" placeholder="Nominal" className="w-full p-2 border rounded text-sm" value={form.amount} onChange={e=>setForm({...form, amount:e.target.value})} />
+                  <textarea placeholder="Keterangan" className="w-full p-2 border rounded text-sm" value={form.description} onChange={e=>setForm({...form, description:e.target.value})} />
+                  <button className="w-full bg-teal-700 text-white p-2 rounded font-bold text-sm">Simpan</button>
+                </form>
+              )}
+              <div className="bg-white p-4 rounded-xl shadow border text-center text-xs text-slate-400">
+                Data disinkronkan otomatis dengan Firebase.
+              </div>
+            </div>
+
+            <div className="md:col-span-2 bg-white p-4 rounded-xl shadow border overflow-x-auto">
+              <h3 className="font-bold text-sm mb-4">Riwayat Transaksi</h3>
+              <table className="w-full text-xs text-left">
+                <thead><tr className="border-b"><th className="pb-2">Tgl</th><th className="pb-2">Kategori</th><th className="pb-2 text-right">Nominal</th></tr></thead>
+                <tbody>
+                  {transactions.map(t => (
+                    <tr key={t.id} className="border-b last:border-0">
+                      <td className="py-2">{t.date}</td>
+                      <td className="py-2 font-bold">{t.type}</td>
+                      <td className={`py-2 text-right ${t.type==='Pemasukan'?'text-emerald-600':'text-rose-600'}`}>{fmt(t.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
